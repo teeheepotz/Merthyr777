@@ -3,21 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Zello Web PTT Bridge</title>
+    <title>Zello Web PTT Bridge - FINAL</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
             padding: 20px;
         }
-
         .container {
             background: white;
             border-radius: 20px;
@@ -26,29 +20,10 @@
             margin: 0 auto;
             padding: 40px;
         }
-
-        h1 {
-            color: #333;
-            margin-bottom: 10px;
-        }
-
-        .subtitle {
-            color: #666;
-            margin-bottom: 30px;
-            font-size: 14px;
-        }
-
-        .form-group {
-            margin-bottom: 20px;
-        }
-
-        label {
-            display: block;
-            margin-bottom: 8px;
-            color: #555;
-            font-weight: 500;
-        }
-
+        h1 { color: #333; margin-bottom: 10px; }
+        .subtitle { color: #666; margin-bottom: 30px; font-size: 14px; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; color: #555; font-weight: 500; }
         input {
             width: 100%;
             padding: 12px;
@@ -56,12 +31,7 @@
             border-radius: 8px;
             font-size: 15px;
         }
-
-        input:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-
+        input:focus { outline: none; border-color: #667eea; }
         button {
             width: 100%;
             padding: 15px;
@@ -75,18 +45,8 @@
             margin-bottom: 15px;
             transition: all 0.2s;
         }
-
-        button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
-        }
-
-        button:disabled {
-            background: #ccc;
-            cursor: not-allowed;
-            transform: none;
-        }
-
+        button:hover { transform: translateY(-2px); box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3); }
+        button:disabled { background: #ccc; cursor: not-allowed; transform: none; }
         .log {
             background: #1e1e1e;
             color: #d4d4d4;
@@ -99,17 +59,11 @@
             margin-top: 20px;
             border: 1px solid #333;
         }
-
-        .log-entry {
-            margin-bottom: 5px;
-            line-height: 1.5;
-        }
-
+        .log-entry { margin-bottom: 5px; line-height: 1.5; }
         .log-entry.success { color: #4ec9b0; }
         .log-entry.error { color: #f48771; }
         .log-entry.info { color: #569cd6; }
         .log-entry.warning { color: #dcdcaa; }
-
         .status {
             padding: 15px;
             border-radius: 8px;
@@ -117,27 +71,10 @@
             text-align: center;
             font-weight: bold;
         }
-
-        .status.disconnected {
-            background: #fee;
-            color: #c33;
-        }
-
-        .status.connected {
-            background: #d4edda;
-            color: #155724;
-        }
-
-        .ptt {
-            display: none;
-            text-align: center;
-            margin-top: 30px;
-        }
-
-        .ptt.active {
-            display: block;
-        }
-
+        .status.disconnected { background: #fee; color: #c33; }
+        .status.connected { background: #d4edda; color: #155724; }
+        .ptt { display: none; text-align: center; margin-top: 30px; }
+        .ptt.active { display: block; }
         .ptt-button {
             width: 180px;
             height: 180px;
@@ -153,48 +90,26 @@
             box-shadow: 0 10px 30px rgba(245, 87, 108, 0.4);
             transition: all 0.2s ease;
         }
-
-        .ptt-button:hover {
-            transform: scale(1.05);
-        }
-
+        .ptt-button:hover { transform: scale(1.05); }
         .ptt-button.transmitting {
             background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
             transform: scale(0.95);
         }
-
         .channel-stats {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 15px;
             margin: 20px 0;
         }
-
         .stat-box {
             background: #f8f9fa;
             padding: 15px;
             border-radius: 8px;
             text-align: center;
         }
-
-        .stat-label {
-            font-size: 12px;
-            color: #666;
-            margin-bottom: 5px;
-        }
-
-        .stat-value {
-            font-size: 24px;
-            font-weight: bold;
-            color: #667eea;
-        }
-
-        small {
-            display: block;
-            margin-top: 5px;
-            color: #666;
-            font-size: 12px;
-        }
+        .stat-label { font-size: 12px; color: #666; margin-bottom: 5px; }
+        .stat-value { font-size: 24px; font-weight: bold; color: #667eea; }
+        small { display: block; margin-top: 5px; color: #666; font-size: 12px; }
     </style>
 </head>
 <body>
@@ -273,6 +188,16 @@
             }
         }
 
+        // Helper to create binary packet header for audio
+        function createBinaryHeader(streamId, packetId) {
+            const buffer = new ArrayBuffer(9);
+            const view = new DataView(buffer);
+            view.setUint8(0, 0x01); // type = 0x01 for audio
+            view.setUint32(1, streamId, false); // network byte order (big-endian)
+            view.setUint32(5, packetId, false);
+            return new Uint8Array(buffer);
+        }
+
         document.getElementById('connectBtn').addEventListener('click', function() {
             const authToken = document.getElementById('authToken').value.trim();
             const channel = document.getElementById('channel').value.trim();
@@ -289,7 +214,7 @@
 
             const wsUrl = 'wss://zello.io/ws';
             ws = new WebSocket(wsUrl);
-            ws.binaryType = 'blob';
+            ws.binaryType = 'arraybuffer'; // Important for binary data
 
             ws.onopen = function() {
                 log('✅ WebSocket connected', 'success');
@@ -309,16 +234,14 @@
             };
 
             ws.onmessage = function(event) {
-                if (event.data instanceof Blob) {
+                if (event.data instanceof ArrayBuffer) {
+                    // Binary audio data - play it
                     playAudio(event.data);
                     return;
                 }
 
                 try {
                     const data = JSON.parse(event.data);
-                    
-                    // Log all server responses for debugging
-                    log('◀ Server: ' + JSON.stringify(data), 'info');
 
                     if (data.refresh_token) {
                         log('✓ Authenticated successfully', 'success');
@@ -326,7 +249,7 @@
 
                     if (data.command === 'on_channel_status') {
                         if (data.status === 'online') {
-                            log(`✅✅ Connected to: ${data.channel}`, 'success');
+                            log(`✅ Connected: ${data.channel}`, 'success');
                             log(`👥 ${data.users_online} users online`, 'info');
                             
                             document.getElementById('status').className = 'status connected';
@@ -340,14 +263,23 @@
                         const speaker = data.from || data.contactName || 'Unknown';
                         log(`🔊 ${speaker} speaking`, 'info');
                         document.getElementById('currentSpeaker').textContent = speaker;
+                        
+                        // Store stream_id for this incoming stream
+                        if (data.stream_id) {
+                            log(`Stream ID: ${data.stream_id}`, 'info');
+                        }
                     } else if (data.command === 'on_stream_stop') {
                         log('🔇 Stream stopped', 'info');
                         document.getElementById('currentSpeaker').textContent = '--';
                     } else if (data.error) {
                         log(`❌ Error: ${data.error}`, 'error');
+                    } else if (data.stream_id) {
+                        // Response to our start_stream
+                        streamId = data.stream_id;
+                        log(`✓ Got stream_id: ${streamId}`, 'success');
                     }
                 } catch (e) {
-                    // Ignore binary data
+                    // Ignore
                 }
             };
 
@@ -364,11 +296,14 @@
             };
         });
 
-        async function playAudio(blob) {
+        async function playAudio(arrayBuffer) {
+            // Skip header and play audio
+            const audioData = arrayBuffer.slice(9); // Skip 9-byte header
+            const blob = new Blob([audioData], { type: 'audio/opus' });
             const audioPlayer = document.getElementById('audioPlayer');
             const url = URL.createObjectURL(blob);
             audioPlayer.src = url;
-            audioPlayer.play().catch(e => console.log('Audio play failed:', e));
+            audioPlayer.play().catch(e => console.log('Audio play error:', e));
         }
 
         async function requestMicrophone() {
@@ -396,10 +331,7 @@
         const pttBtn = document.getElementById('pttBtn');
 
         function startTransmit() {
-            if (!ws || ws.readyState !== WebSocket.OPEN) {
-                log('Not connected', 'error');
-                return;
-            }
+            if (!ws || ws.readyState !== WebSocket.OPEN) return;
             if (!mediaStream) {
                 alert('Microphone not available');
                 return;
@@ -408,13 +340,12 @@
 
             isTransmitting = true;
             pttBtn.classList.add('transmitting');
-            streamId = Date.now();
             
             log('🎤 TRANSMITTING', 'success');
 
-            // Using correct Zello API command: "send_stream_start" not "start_stream"
-            const startStreamMsg = {
-                command: 'send_stream_start',
+            // Send start_stream command
+            const startMsg = {
+                command: 'start_stream',
                 seq: seq++,
                 type: 'audio',
                 codec: 'opus',
@@ -422,54 +353,50 @@
                 packet_duration: 20
             };
 
-            log('📤 ' + JSON.stringify(startStreamMsg), 'info');
-            ws.send(JSON.stringify(startStreamMsg));
+            log('📤 ' + JSON.stringify(startMsg), 'info');
+            ws.send(JSON.stringify(startMsg));
 
-            try {
-                // Don't reuse MediaRecorder - create fresh instance
-                const options = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-                    ? { mimeType: 'audio/webm;codecs=opus' }
-                    : { mimeType: 'audio/webm' };
-                
-                mediaRecorder = new MediaRecorder(mediaStream, options);
-                let packetId = 0;
+            // Wait a bit for stream_id response, then start recording
+            setTimeout(() => {
+                if (!streamId) {
+                    streamId = Math.floor(Math.random() * 1000000); // Fallback
+                    log(`⚠ Using fallback stream_id: ${streamId}`, 'warning');
+                }
 
-                mediaRecorder.ondataavailable = (event) => {
-                    if (event.data.size > 0 && ws && ws.readyState === WebSocket.OPEN && isTransmitting) {
-                        event.data.arrayBuffer().then(buffer => {
-                            const bytes = new Uint8Array(buffer);
-                            let binary = '';
-                            for (let i = 0; i < bytes.length; i++) {
-                                binary += String.fromCharCode(bytes[i]);
-                            }
-                            const base64 = btoa(binary);
-                            
-                            ws.send(JSON.stringify({
-                                command: 'send_audio',
-                                seq: seq++,
-                                stream_id: streamId,
-                                packet_id: packetId++,
-                                data: base64
-                            }));
+                try {
+                    mediaRecorder = new MediaRecorder(mediaStream, {
+                        mimeType: 'audio/webm;codecs=opus'
+                    });
 
-                            if (packetId === 1) {
-                                log(`📡 Sending audio packets...`, 'info');
-                            }
-                        });
-                    }
-                };
+                    let packetId = 0;
 
-                mediaRecorder.onerror = (e) => {
-                    log(`MediaRecorder error: ${e.error}`, 'error');
-                };
+                    mediaRecorder.ondataavailable = (event) => {
+                        if (event.data.size > 0 && ws && ws.readyState === WebSocket.OPEN && isTransmitting) {
+                            event.data.arrayBuffer().then(buffer => {
+                                // Create binary packet: [type(1) + stream_id(4) + packet_id(4) + audio_data]
+                                const header = createBinaryHeader(streamId, packetId++);
+                                const audioData = new Uint8Array(buffer);
+                                const packet = new Uint8Array(header.length + audioData.length);
+                                packet.set(header, 0);
+                                packet.set(audioData, header.length);
 
-                mediaRecorder.start(20); // 20ms chunks
-                log('Recording started', 'success');
-                
-            } catch (e) {
-                log(`Recording error: ${e.message}`, 'error');
-                stopTransmit();
-            }
+                                ws.send(packet.buffer);
+
+                                if (packetId === 1) {
+                                    log(`📡 Sending audio...`, 'info');
+                                }
+                            });
+                        }
+                    };
+
+                    mediaRecorder.start(20);
+                    log('Recording started', 'success');
+                    
+                } catch (e) {
+                    log(`Recording error: ${e.message}`, 'error');
+                    stopTransmit();
+                }
+            }, 100);
         }
 
         function stopTransmit() {
@@ -483,20 +410,21 @@
                 try {
                     mediaRecorder.stop();
                 } catch (e) {
-                    log(`Stop recording error: ${e.message}`, 'warning');
+                    log(`Stop error: ${e.message}`, 'warning');
                 }
             }
 
             if (ws && ws.readyState === WebSocket.OPEN && streamId) {
                 ws.send(JSON.stringify({
-                    command: 'send_stream_stop',
+                    command: 'stop_stream',
                     seq: seq++,
                     stream_id: streamId
                 }));
-                log('📤 Sent send_stream_stop', 'info');
+                log('📤 Sent stop_stream', 'info');
             }
             
             mediaRecorder = null;
+            streamId = null;
         }
 
         pttBtn.addEventListener('mousedown', startTransmit);
