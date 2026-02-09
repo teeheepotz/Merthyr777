@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Zello Web PTT Bridge - FINAL</title>
+    <title>Zello Web PTT Bridge</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -54,7 +54,7 @@
             border-radius: 8px;
             font-family: 'Courier New', monospace;
             font-size: 12px;
-            max-height: 400px;
+            max-height: 300px;
             overflow-y: auto;
             margin-top: 20px;
             border: 1px solid #333;
@@ -94,6 +94,11 @@
         .ptt-button.transmitting {
             background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
             transform: scale(0.95);
+            animation: pulse 0.5s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { box-shadow: 0 10px 30px rgba(254, 225, 64, 0.6); }
+            50% { box-shadow: 0 10px 40px rgba(254, 225, 64, 0.9); }
         }
         .channel-stats {
             display: grid;
@@ -110,6 +115,15 @@
         .stat-label { font-size: 12px; color: #666; margin-bottom: 5px; }
         .stat-value { font-size: 24px; font-weight: bold; color: #667eea; }
         small { display: block; margin-top: 5px; color: #666; font-size: 12px; }
+        .success-banner {
+            background: #d4edda;
+            border-left: 4px solid #28a745;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+        }
+        .success-banner h4 { color: #155724; margin-bottom: 5px; }
+        .success-banner p { color: #155724; font-size: 13px; }
     </style>
 </head>
 <body>
@@ -142,6 +156,11 @@
         <button id="connectBtn">🔌 Connect to Zello</button>
 
         <div class="ptt" id="pttContainer">
+            <div class="success-banner">
+                <h4>✅ Connected & Ready!</h4>
+                <p>Your web PTT bridge is working. Press and hold to transmit.</p>
+            </div>
+
             <div class="channel-stats">
                 <div class="stat-box">
                     <div class="stat-label">Users Online</div>
@@ -156,7 +175,8 @@
             <button class="ptt-button" id="pttBtn">PUSH<br>TO<br>TALK</button>
             
             <p style="color: #666; font-size: 14px; margin-top: 10px;">
-                Hold button or Spacebar to transmit
+                🎤 Hold button or Spacebar to transmit<br>
+                🔊 Incoming audio plays automatically
             </p>
         </div>
 
@@ -172,6 +192,7 @@
         let isTransmitting = false;
         let seq = 1;
         let streamId = null;
+        let awaitingStreamId = false;
 
         function log(message, type = 'info') {
             console.log(message);
@@ -188,12 +209,11 @@
             }
         }
 
-        // Helper to create binary packet header for audio
         function createBinaryHeader(streamId, packetId) {
             const buffer = new ArrayBuffer(9);
             const view = new DataView(buffer);
-            view.setUint8(0, 0x01); // type = 0x01 for audio
-            view.setUint32(1, streamId, false); // network byte order (big-endian)
+            view.setUint8(0, 0x01);
+            view.setUint32(1, streamId, false);
             view.setUint32(5, packetId, false);
             return new Uint8Array(buffer);
         }
@@ -214,7 +234,7 @@
 
             const wsUrl = 'wss://zello.io/ws';
             ws = new WebSocket(wsUrl);
-            ws.binaryType = 'arraybuffer'; // Important for binary data
+            ws.binaryType = 'arraybuffer';
 
             ws.onopen = function() {
                 log('✅ WebSocket connected', 'success');
@@ -235,7 +255,6 @@
 
             ws.onmessage = function(event) {
                 if (event.data instanceof ArrayBuffer) {
-                    // Binary audio data - play it
                     playAudio(event.data);
                     return;
                 }
@@ -244,7 +263,7 @@
                     const data = JSON.parse(event.data);
 
                     if (data.refresh_token) {
-                        log('✓ Authenticated successfully', 'success');
+                        log('✓ Authenticated', 'success');
                     }
 
                     if (data.command === 'on_channel_status') {
@@ -261,25 +280,19 @@
                         }
                     } else if (data.command === 'on_stream_start') {
                         const speaker = data.from || data.contactName || 'Unknown';
-                        log(`🔊 ${speaker} speaking`, 'info');
+                        log(`🔊 ${speaker}`, 'info');
                         document.getElementById('currentSpeaker').textContent = speaker;
-                        
-                        // Store stream_id for this incoming stream
-                        if (data.stream_id) {
-                            log(`Stream ID: ${data.stream_id}`, 'info');
-                        }
                     } else if (data.command === 'on_stream_stop') {
-                        log('🔇 Stream stopped', 'info');
                         document.getElementById('currentSpeaker').textContent = '--';
                     } else if (data.error) {
-                        log(`❌ Error: ${data.error}`, 'error');
-                    } else if (data.stream_id) {
-                        // Response to our start_stream
+                        log(`❌ ${data.error}`, 'error');
+                    } else if (data.stream_id && awaitingStreamId) {
                         streamId = data.stream_id;
-                        log(`✓ Got stream_id: ${streamId}`, 'success');
+                        awaitingStreamId = false;
+                        log(`✓ Stream ID: ${streamId}`, 'success');
                     }
                 } catch (e) {
-                    // Ignore
+                    // Ignore parse errors
                 }
             };
 
@@ -297,8 +310,7 @@
         });
 
         async function playAudio(arrayBuffer) {
-            // Skip header and play audio
-            const audioData = arrayBuffer.slice(9); // Skip 9-byte header
+            const audioData = arrayBuffer.slice(9);
             const blob = new Blob([audioData], { type: 'audio/opus' });
             const audioPlayer = document.getElementById('audioPlayer');
             const url = URL.createObjectURL(blob);
@@ -324,7 +336,7 @@
                 });
                 log('✅ Microphone ready', 'success');
             } catch (e) {
-                log(`⚠ Microphone denied: ${e.message}`, 'warning');
+                log(`⚠ Mic denied: ${e.message}`, 'warning');
             }
         }
 
@@ -340,27 +352,23 @@
 
             isTransmitting = true;
             pttBtn.classList.add('transmitting');
+            awaitingStreamId = true;
+            streamId = null;
             
-            log('🎤 TRANSMITTING', 'success');
+            log('🎤 TX', 'success');
 
-            // Send start_stream command
-            const startMsg = {
+            ws.send(JSON.stringify({
                 command: 'start_stream',
                 seq: seq++,
                 type: 'audio',
                 codec: 'opus',
                 codec_header: 'gD4BPA==',
                 packet_duration: 20
-            };
+            }));
 
-            log('📤 ' + JSON.stringify(startMsg), 'info');
-            ws.send(JSON.stringify(startMsg));
-
-            // Wait a bit for stream_id response, then start recording
             setTimeout(() => {
                 if (!streamId) {
-                    streamId = Math.floor(Math.random() * 1000000); // Fallback
-                    log(`⚠ Using fallback stream_id: ${streamId}`, 'warning');
+                    streamId = Math.floor(Math.random() * 1000000);
                 }
 
                 try {
@@ -373,27 +381,20 @@
                     mediaRecorder.ondataavailable = (event) => {
                         if (event.data.size > 0 && ws && ws.readyState === WebSocket.OPEN && isTransmitting) {
                             event.data.arrayBuffer().then(buffer => {
-                                // Create binary packet: [type(1) + stream_id(4) + packet_id(4) + audio_data]
                                 const header = createBinaryHeader(streamId, packetId++);
                                 const audioData = new Uint8Array(buffer);
                                 const packet = new Uint8Array(header.length + audioData.length);
                                 packet.set(header, 0);
                                 packet.set(audioData, header.length);
-
                                 ws.send(packet.buffer);
-
-                                if (packetId === 1) {
-                                    log(`📡 Sending audio...`, 'info');
-                                }
                             });
                         }
                     };
 
                     mediaRecorder.start(20);
-                    log('Recording started', 'success');
                     
                 } catch (e) {
-                    log(`Recording error: ${e.message}`, 'error');
+                    log(`Error: ${e.message}`, 'error');
                     stopTransmit();
                 }
             }, 100);
@@ -404,14 +405,11 @@
             
             isTransmitting = false;
             pttBtn.classList.remove('transmitting');
-            log('🔇 Stopped', 'info');
 
             if (mediaRecorder && mediaRecorder.state !== 'inactive') {
                 try {
                     mediaRecorder.stop();
-                } catch (e) {
-                    log(`Stop error: ${e.message}`, 'warning');
-                }
+                } catch (e) {}
             }
 
             if (ws && ws.readyState === WebSocket.OPEN && streamId) {
@@ -420,11 +418,11 @@
                     seq: seq++,
                     stream_id: streamId
                 }));
-                log('📤 Sent stop_stream', 'info');
             }
             
             mediaRecorder = null;
             streamId = null;
+            awaitingStreamId = false;
         }
 
         pttBtn.addEventListener('mousedown', startTransmit);
@@ -447,7 +445,7 @@
             }
         });
 
-        log('=== Zello Web PTT Ready ===', 'success');
+        log('=== Zello Web PTT Bridge Ready ===', 'success');
     </script>
 </body>
 </html>
