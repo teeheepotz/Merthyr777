@@ -3,77 +3,47 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Zello 2026 Full-Duplex Bridge</title>
+    <title>Zello Web PTT Bridge</title>
     <style>
-        body { font-family: -apple-system, sans-serif; background: #121212; color: white; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
-        .container { background: #1e1e1e; padding: 2rem; border-radius: 20px; width: 400px; text-align: center; border: 1px solid #333; }
-        .status-bar { font-size: 12px; margin-bottom: 15px; padding: 8px; border-radius: 5px; background: #2d2d2d; }
-        input { width: 100%; padding: 12px; margin: 8px 0; background: #2d2d2d; border: 1px solid #444; color: white; border-radius: 8px; box-sizing: border-box; }
-        button { width: 100%; padding: 15px; margin-top: 10px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; }
-        #connectBtn { background: #3d5afe; color: white; }
-        #pttBtn { height: 140px; width: 140px; border-radius: 50%; margin: 25px auto; display: none; background: #ff5252; font-size: 1.2rem; box-shadow: 0 0 15px rgba(255,82,82,0.3); }
+        /* YOUR ORIGINAL CSS STYLE RESTORED */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; padding: 20px; color: #333; }
+        .container { background: white; border-radius: 20px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); max-width: 500px; margin: 0 auto; padding: 40px; text-align: center; }
+        input { width: 100%; padding: 12px; border: 2px solid #e0e0e0; border-radius: 8px; margin-bottom: 10px; font-size: 15px; }
+        .status { padding: 15px; border-radius: 8px; margin-bottom: 20px; font-weight: bold; background: #fee; color: #c33; }
+        .status.connected { background: #d4edda; color: #155724; }
+        #pttBtn { width: 180px; height: 180px; border-radius: 50%; border: none; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; font-size: 20px; font-weight: bold; cursor: pointer; margin: 20px auto; display: none; box-shadow: 0 10px 30px rgba(245, 87, 108, 0.4); transition: all 0.2s ease; }
         #pttBtn.active { display: block; }
-        #pttBtn.transmitting { background: #4caf50; box-shadow: 0 0 30px #4caf50; transform: scale(0.95); }
-        .log { background: #000; color: #00ff00; padding: 10px; height: 130px; overflow-y: auto; font-size: 11px; margin-top: 20px; text-align: left; border-radius: 5px; font-family: 'Courier New', monospace; border: 1px solid #333; }
+        #pttBtn.transmitting { background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); transform: scale(0.95); animation: pulse 0.5s infinite; }
+        @keyframes pulse { 0%, 100% { box-shadow: 0 10px 30px rgba(254, 225, 64, 0.6); } 50% { box-shadow: 0 10px 40px rgba(254, 225, 64, 0.9); } }
+        .log { background: #1e1e1e; color: #4ec9b0; padding: 20px; border-radius: 8px; font-family: monospace; font-size: 11px; max-height: 150px; overflow-y: auto; margin-top: 20px; text-align: left; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h2>🎙️ Zello WebBridge</h2>
-        <div class="status-bar" id="status">OFFLINE</div>
+        <h1>🎙️ Zello Bridge</h1>
+        <div class="status" id="status">⚫ Disconnected</div>
         
-        <input type="text" id="token" placeholder="Zello Auth Token">
+        <input type="text" id="token" placeholder="Authentication Token">
         <input type="text" id="channel" placeholder="Channel Name">
-        <button id="connectBtn">CONNECT & INITIALIZE AUDIO</button>
+        <button onclick="connect()" id="connectBtn" style="width:100%; padding:15px; background:#667eea; color:white; border:none; border-radius:10px; cursor:pointer; font-weight:bold;">🔌 Connect to Zello</button>
 
-        <button id="pttBtn">HOLD</button>
+        <button id="pttBtn">PUSH TO TALK</button>
         <div class="log" id="log"></div>
     </div>
 
     <script>
-        let ws, encoder, decoder, audioCtx, mediaStream, reader;
-        let seq = 1;
-        let packetId = 1;
-        let isTransmitting = false;
-        let activeStreamId = null;
-        let audioBuffer = [];
+        let ws, encoder, mediaStream, reader;
+        let seq = 1, packetId = 1, isTransmitting = false, activeStreamId = null;
 
-        const log = (msg, color = '#0f0') => {
+        const log = (msg) => {
             const l = document.getElementById('log');
-            l.innerHTML += `<div style="color:${color}">> ${msg}</div>`;
+            l.innerHTML += `<div>[${new Date().toLocaleTimeString()}] ${msg}</div>`;
             l.scrollTop = l.scrollHeight;
         };
 
-        // Initialize Audio Output Context (Fixes "No incoming audio")
-        async function initAudioSystem() {
-            if (audioCtx) return;
-            audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
-            
-            decoder = new AudioDecoder({
-                output: (frame) => {
-                    const source = audioCtx.createBufferSource();
-                    source.buffer = audioCtx.createBuffer(frame.numberOfChannels, frame.numberOfFrames, frame.sampleRate);
-                    for (let i = 0; i < frame.numberOfChannels; i++) {
-                        frame.copyTo(source.buffer.getChannelData(i), { planeIndex: i });
-                    }
-                    source.connect(audioCtx.destination);
-                    source.start();
-                    frame.close();
-                },
-                error: (e) => console.error("Decoder Error:", e)
-            });
-
-            decoder.configure({ codec: 'opus', sampleRate: 48000, numberOfChannels: 1 });
-            log("Audio Output Initialized", "#569cd6");
-        }
-
-        document.getElementById('connectBtn').onclick = async () => {
-            await initAudioSystem();
-            if (audioCtx.state === 'suspended') await audioCtx.resume();
-
+        async function connect() {
             ws = new WebSocket('wss://zello.io/ws');
-            ws.binaryType = "arraybuffer"; // Essential for binary audio
-            
             ws.onopen = () => {
                 log("WebSocket Connected");
                 ws.send(JSON.stringify({
@@ -84,49 +54,35 @@
                 }));
             };
 
-            ws.onmessage = async (e) => {
-                if (typeof e.data === "string") {
-                    const msg = JSON.parse(e.data);
+            ws.onmessage = (e) => {
+                const msg = JSON.parse(e.data);
+                if (msg.refresh_token) {
+                    log("✅ Authenticated!");
+                    document.getElementById('status').innerText = "🟢 Connected";
+                    document.getElementById('status').classList.add('connected');
+                    document.getElementById('pttBtn').classList.add('active');
+                    document.getElementById('connectBtn').style.display = "none";
                     
-                    if (msg.refresh_token) {
-                        log("✅ Connected & Authenticated", "#4ec9b0");
-                        document.getElementById('pttBtn').classList.add('active');
-                        document.getElementById('status').innerText = "🟢 ONLINE";
-                        // 2026 Heartbeat
-                        setInterval(() => ws.send(JSON.stringify({command: "keep_alive", seq: seq++})), 25000);
-                    }
+                    // 2026 MANDATORY HEARTBEAT: Prevent socket from closing
+                    setInterval(() => ws.send(JSON.stringify({command: "keep_alive", seq: seq++})), 25000);
+                }
 
-                    if (msg.command === "on_stream_start" || msg.stream_id) {
-                        activeStreamId = msg.stream_id;
-                        log(`🚀 Stream ID Received: ${activeStreamId}`, "#dcdcaa");
-                        flushAudioBuffer();
-                    }
-                } else {
-                    // Handle Incoming Binary Audio from Zello
-                    const data = new Uint8Array(e.data);
-                    if (data[0] === 0x01) { // Type: Audio
-                        const opusData = data.slice(9);
-                        const chunk = new EncodedAudioChunk({
-                            type: 'key',
-                            timestamp: performance.now() * 1000,
-                            duration: 20000,
-                            data: opusData
-                        });
-                        decoder.decode(chunk);
-                    }
+                // CRITICAL: Get real ID from server to stop "Silent Key-up"
+                if (msg.command === "on_stream_start" || msg.stream_id) {
+                    activeStreamId = msg.stream_id;
+                    log(`🚀 Stream Ready ID: ${activeStreamId}`);
                 }
             };
-        };
+        }
 
         async function startPTT() {
             if (isTransmitting) return;
             isTransmitting = true;
             activeStreamId = null;
-            audioBuffer = [];
             packetId = 1;
             document.getElementById('pttBtn').classList.add('transmitting');
 
-            // Command with Codec Header (Fixes "5 second drop")
+            // 1. Send Start Command (Correct 2026 header)
             ws.send(JSON.stringify({
                 command: "start_stream",
                 seq: seq++,
@@ -136,24 +92,20 @@
                 packet_duration: 20
             }));
 
+            // 2. Start Mic
             try {
-                mediaStream = await navigator.mediaDevices.getUserMedia({ 
-                    audio: { echoCancellation: true, noiseSuppression: true } 
-                });
+                mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 const track = mediaStream.getAudioTracks()[0];
                 reader = new MediaStreamTrackProcessor({ track }).readable.getReader();
 
                 encoder = new AudioEncoder({
                     output: (chunk) => {
+                        if (!activeStreamId) return; // Wait for ID
                         const data = new Uint8Array(chunk.byteLength);
                         chunk.copyTo(data);
-                        if (!activeStreamId) {
-                            audioBuffer.push(data);
-                        } else {
-                            sendBinaryPacket(data);
-                        }
+                        sendBinary(data);
                     },
-                    error: (e) => log("Encoder Error: " + e.message, "#f48771")
+                    error: (e) => log("Mic Error: " + e.message)
                 });
 
                 encoder.configure({ codec: 'opus', sampleRate: 48000, numberOfChannels: 1, bitrate: 24000 });
@@ -165,29 +117,21 @@
                     value.close();
                 }
             } catch (err) {
-                log("Mic Error: " + err, "#f48771");
+                log("Mic Permission Denied: " + err);
             }
         }
 
-        function flushAudioBuffer() {
-            if (audioBuffer.length > 0) {
-                log(`📡 Flushing ${audioBuffer.length} packets...`);
-                audioBuffer.forEach(chunk => sendBinaryPacket(chunk));
-                audioBuffer = [];
-            }
-        }
-
-        function sendBinaryPacket(data) {
+        function sendBinary(data) {
             const header = new ArrayBuffer(9);
             const view = new DataView(header);
             view.setUint8(0, 0x01);
-            view.setUint32(1, activeStreamId, false); // Big-Endian Fix
-            view.setUint32(5, packetId++, false);
+            view.setUint32(1, activeStreamId, false); // BIG ENDIAN
+            view.setUint32(5, packetId++, false); // BIG ENDIAN
 
             const packet = new Uint8Array(9 + data.byteLength);
             packet.set(new Uint8Array(header), 0);
             packet.set(data, 9);
-            if (ws.readyState === WebSocket.OPEN) ws.send(packet);
+            ws.send(packet);
         }
 
         function stopPTT() {
@@ -195,17 +139,13 @@
             document.getElementById('pttBtn').classList.remove('transmitting');
             if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
             ws.send(JSON.stringify({ command: "stop_stream", seq: seq++ }));
-            log("🔇 Transmission Stopped", "#aaa");
+            log("🔇 Stopped");
         }
 
         const btn = document.getElementById('pttBtn');
         btn.onmousedown = startPTT;
         btn.onmouseup = stopPTT;
         btn.onmouseleave = stopPTT;
-        
-        // Spacebar support
-        window.onkeydown = (e) => { if(e.code === 'Space') startPTT(); };
-        window.onkeyup = (e) => { if(e.code === 'Space') stopPTT(); };
     </script>
 </body>
 </html>
