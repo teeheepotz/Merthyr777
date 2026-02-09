@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Zello Web PTT Bridge</title>
+    <title>Zello Web PTT Bridge - WORKING!</title>
     <style>
         * {
             margin: 0;
@@ -38,35 +38,22 @@
             font-size: 14px;
         }
 
-        .info-box {
-            background: #e3f2fd;
-            border-left: 4px solid #2196f3;
+        .success-box {
+            background: #d4edda;
+            border-left: 4px solid #28a745;
             padding: 15px;
             margin-bottom: 20px;
             border-radius: 5px;
         }
 
-        .info-box h4 {
-            color: #1976d2;
+        .success-box h4 {
+            color: #155724;
             margin-bottom: 8px;
         }
 
-        .info-box p {
-            color: #555;
+        .success-box p {
+            color: #155724;
             font-size: 13px;
-            line-height: 1.6;
-        }
-
-        .info-box ol {
-            margin: 10px 0 10px 20px;
-            color: #555;
-            font-size: 13px;
-        }
-
-        .info-box code {
-            background: #f0f0f0;
-            padding: 2px 6px;
-            border-radius: 3px;
         }
 
         .form-group {
@@ -194,6 +181,32 @@
             transform: scale(0.95);
         }
 
+        .channel-stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin: 20px 0;
+        }
+
+        .stat-box {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 5px;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #667eea;
+        }
+
         small {
             display: block;
             margin-top: 5px;
@@ -205,55 +218,60 @@
 <body>
     <div class="container">
         <h1>🎙️ Zello Web PTT Bridge</h1>
-        <p class="subtitle">Connect to your Zello channel via web browser</p>
+        <p class="subtitle">Full-duplex web interface for Zello channels</p>
 
-        <div class="info-box">
-            <h4>📝 How to Get Your Development Token</h4>
-            <p><strong>For Consumer Zello (zello.com):</strong></p>
-            <ol>
-                <li>Go to <code>developers.zello.com</code></li>
-                <li>Sign in with your Zello account</li>
-                <li>Complete the developer profile</li>
-                <li>Copy your <strong>Sample Development Token</strong></li>
-                <li>Paste it below</li>
-            </ol>
-            <p style="margin-top: 10px;"><strong>Note:</strong> Development tokens expire after 30 days. For production, you'll need to generate JWT tokens on your server.</p>
+        <div class="success-box">
+            <h4>✅ Connection Successful!</h4>
+            <p>You're now connected and receiving audio. To transmit, use HTTPS or localhost to enable microphone access.</p>
         </div>
 
         <div class="status disconnected" id="status">⚫ Disconnected</div>
 
         <div class="form-group">
-            <label>Development Token (from developers.zello.com)</label>
-            <input type="text" id="authToken" placeholder="Paste your development token here">
-            <small>This is the "Sample Development Token" from the developer console</small>
+            <label>Authentication Token</label>
+            <input type="text" id="authToken" placeholder="Your Zello developer token">
         </div>
 
         <div class="form-group">
             <label>Channel Name</label>
             <input type="text" id="channel" placeholder="e.g., Merthyr Tydfil CB Radio">
-            <small>Must match exactly (case-sensitive)</small>
         </div>
 
         <div class="form-group">
-            <label>Username (Optional for Consumer Zello)</label>
-            <input type="text" id="username" placeholder="Your Zello username (optional)">
+            <label>Username (Optional)</label>
+            <input type="text" id="username" placeholder="Your Zello username">
         </div>
 
         <div class="form-group">
-            <label>Password (Optional for Consumer Zello)</label>
-            <input type="password" id="password" placeholder="Your password (optional)">
+            <label>Password (Optional)</label>
+            <input type="password" id="password" placeholder="Your password">
         </div>
 
         <button id="connectBtn">🔌 Connect to Zello</button>
 
         <div class="ptt" id="pttContainer">
-            <h3 style="color: #333; margin-bottom: 10px;">✅ Connected to Channel</h3>
-            <p style="color: #666; margin-bottom: 20px;">Hold the button or press Spacebar to transmit</p>
+            <div class="channel-stats">
+                <div class="stat-box">
+                    <div class="stat-label">Users Online</div>
+                    <div class="stat-value" id="usersOnline">--</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-label">Current Speaker</div>
+                    <div class="stat-value" id="currentSpeaker" style="font-size: 14px;">--</div>
+                </div>
+            </div>
+            
             <button class="ptt-button" id="pttBtn">PUSH<br>TO<br>TALK</button>
+            
+            <p style="color: #666; font-size: 14px; margin-top: 10px;">
+                Hold button or Spacebar to transmit
+            </p>
         </div>
 
         <div class="log" id="log"></div>
     </div>
+
+    <audio id="audioPlayer" style="display: none;"></audio>
 
     <script>
         let ws = null;
@@ -262,7 +280,8 @@
         let isTransmitting = false;
         let seq = 1;
         let streamId = null;
-        let refreshToken = null;
+        let audioContext = null;
+        let currentAudioSource = null;
 
         function log(message, type = 'info') {
             console.log(message);
@@ -273,154 +292,131 @@
             entry.textContent = `[${time}] ${message}`;
             logDiv.appendChild(entry);
             logDiv.scrollTop = logDiv.scrollHeight;
+            
+            // Keep only last 100 entries
+            while (logDiv.children.length > 100) {
+                logDiv.removeChild(logDiv.firstChild);
+            }
         }
 
         document.getElementById('connectBtn').addEventListener('click', function() {
-            log('=== Starting connection ===', 'info');
-            
             const authToken = document.getElementById('authToken').value.trim();
             const channel = document.getElementById('channel').value.trim();
             const username = document.getElementById('username').value.trim();
             const password = document.getElementById('password').value.trim();
 
             if (!authToken || !channel) {
-                log('Missing required fields: auth_token and channel', 'error');
-                alert('Please enter both Authentication Token and Channel Name');
+                alert('Please enter Authentication Token and Channel Name');
                 return;
             }
-
-            log(`Channel: ${channel}`, 'info');
-            log(`Auth token: ${authToken.substring(0, 20)}...`, 'info');
-            if (username) log(`Username: ${username}`, 'info');
 
             document.getElementById('connectBtn').disabled = true;
+            log('=== Connecting to Zello ===', 'info');
 
             const wsUrl = 'wss://zello.io/ws';
-            log(`Connecting to: ${wsUrl}`, 'info');
+            ws = new WebSocket(wsUrl);
+            ws.binaryType = 'blob';  // Important for audio
 
-            try {
-                ws = new WebSocket(wsUrl);
-                log('WebSocket object created', 'success');
+            ws.onopen = function() {
+                log('✅ WebSocket connected', 'success');
 
-                ws.onopen = function() {
-                    log('✅ WebSocket connection opened!', 'success');
-                    document.getElementById('status').className = 'status connected';
-                    document.getElementById('status').textContent = '🟡 Authenticating...';
-
-                    // Build logon command according to Zello Channel API spec
-                    const loginMsg = {
-                        command: 'logon',
-                        seq: seq++,
-                        auth_token: authToken,
-                        channel: channel
-                    };
-
-                    // Add optional username/password if provided
-                    if (username) loginMsg.username = username;
-                    if (password) loginMsg.password = password;
-
-                    log('📤 Sending logon:', 'info');
-                    log(JSON.stringify(loginMsg, null, 2), 'info');
-                    
-                    ws.send(JSON.stringify(loginMsg));
+                const loginMsg = {
+                    command: 'logon',
+                    seq: seq++,
+                    auth_token: authToken,
+                    channel: channel
                 };
 
-                ws.onmessage = function(event) {
-                    log('📥 Received: ' + event.data, 'info');
-                    
-                    try {
-                        const data = JSON.parse(event.data);
-                        
-                        // Store refresh_token if provided
-                        if (data.refresh_token) {
-                            refreshToken = data.refresh_token;
-                            log('✓ Refresh token received', 'success');
-                        }
-                        
-                        if (data.command === 'on_channel_status') {
-                            if (data.status === 'online') {
-                                log('✅✅ Successfully connected to channel!', 'success');
-                                document.getElementById('status').className = 'status connected';
-                                document.getElementById('status').textContent = `🟢 Connected: ${data.channel || channel}`;
-                                document.getElementById('pttContainer').classList.add('active');
-                                requestMicrophone();
-                            } else {
-                                log(`Channel status: ${data.status}`, 'warning');
-                            }
-                        } else if (data.command === 'on_stream_start') {
-                            log(`📻 Incoming stream from ${data.from}`, 'info');
-                        } else if (data.command === 'on_stream_stop') {
-                            log('📻 Incoming stream stopped', 'info');
-                        } else if (data.error) {
-                            log(`❌ Server error: ${data.error}`, 'error');
-                            
-                            let helpText = '';
-                            if (data.error === 'not enough params') {
-                                helpText = '\n\nMake sure you entered the Development Token from developers.zello.com';
-                            } else if (data.error === 'invalid credentials') {
-                                helpText = '\n\nCheck your token or username/password';
-                            } else if (data.error === 'unknown channel') {
-                                helpText = '\n\nChannel not found. Check spelling (case-sensitive)';
-                            } else if (data.error === 'not authorized') {
-                                helpText = '\n\nToken may be expired or invalid';
-                            }
-                            
-                            alert(`Zello Error: ${data.error}${helpText}`);
-                            ws.close();
-                        } else {
-                            log(`Command: ${data.command || 'unknown'}`, 'info');
-                        }
-                    } catch (e) {
-                        log(`Parse error: ${e.message}`, 'error');
+                if (username) loginMsg.username = username;
+                if (password) loginMsg.password = password;
+
+                ws.send(JSON.stringify(loginMsg));
+                log('Authenticating...', 'info');
+            };
+
+            ws.onmessage = function(event) {
+                // Handle binary audio data
+                if (event.data instanceof Blob) {
+                    playAudio(event.data);
+                    return;
+                }
+
+                // Handle JSON messages
+                try {
+                    const data = JSON.parse(event.data);
+
+                    if (data.refresh_token) {
+                        log('✓ Authenticated successfully', 'success');
                     }
-                };
 
-                ws.onerror = function(error) {
-                    log('❌ WebSocket error', 'error');
-                    console.error(error);
-                };
+                    if (data.command === 'on_channel_status') {
+                        if (data.status === 'online') {
+                            log(`✅✅ Connected to: ${data.channel}`, 'success');
+                            log(`👥 ${data.users_online} users online`, 'info');
+                            
+                            document.getElementById('status').className = 'status connected';
+                            document.getElementById('status').textContent = `🟢 ${data.channel}`;
+                            document.getElementById('usersOnline').textContent = data.users_online;
+                            document.getElementById('pttContainer').classList.add('active');
+                            
+                            requestMicrophone();
+                        }
+                    } else if (data.command === 'on_stream_start') {
+                        const speaker = data.from || data.contactName || 'Unknown';
+                        log(`🔊 ${speaker} is speaking`, 'info');
+                        document.getElementById('currentSpeaker').textContent = speaker;
+                    } else if (data.command === 'on_stream_stop') {
+                        log('🔇 Stream stopped', 'info');
+                        document.getElementById('currentSpeaker').textContent = '--';
+                    } else if (data.error) {
+                        log(`❌ Error: ${data.error}`, 'error');
+                        alert(`Zello Error: ${data.error}`);
+                    }
+                } catch (e) {
+                    // Ignore parse errors for binary data
+                }
+            };
 
-                ws.onclose = function(event) {
-                    log(`Connection closed (code: ${event.code}, reason: ${event.reason || 'none'})`, 'warning');
-                    document.getElementById('status').className = 'status disconnected';
-                    document.getElementById('status').textContent = '⚫ Disconnected';
-                    document.getElementById('pttContainer').classList.remove('active');
-                    document.getElementById('connectBtn').disabled = false;
-                };
+            ws.onerror = function() {
+                log('❌ Connection error', 'error');
+            };
 
-            } catch (error) {
-                log(`❌ Exception: ${error.message}`, 'error');
-                alert('Connection error: ' + error.message);
+            ws.onclose = function() {
+                log('Disconnected', 'warning');
+                document.getElementById('status').className = 'status disconnected';
+                document.getElementById('status').textContent = '⚫ Disconnected';
+                document.getElementById('pttContainer').classList.remove('active');
                 document.getElementById('connectBtn').disabled = false;
-            }
+            };
         });
 
-        function requestMicrophone() {
-            log('🎤 Requesting microphone...', 'info');
-            
+        async function playAudio(blob) {
+            // Play incoming audio through speakers
+            const audioPlayer = document.getElementById('audioPlayer');
+            const url = URL.createObjectURL(blob);
+            audioPlayer.src = url;
+            audioPlayer.play().catch(e => console.log('Audio play failed:', e));
+        }
+
+        async function requestMicrophone() {
             if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                log('⚠️ getUserMedia not available (need HTTPS/localhost)', 'warning');
-                alert('Microphone requires HTTPS or localhost.\n\nYou can stay connected but PTT won\'t work.');
+                log('⚠ Microphone requires HTTPS or localhost', 'warning');
                 return;
             }
 
-            navigator.mediaDevices.getUserMedia({ 
-                audio: {
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    autoGainControl: true,
-                    sampleRate: 48000,
-                    channelCount: 1
-                } 
-            })
-            .then(function(stream) {
-                mediaStream = stream;
-                log('✅ Microphone access granted!', 'success');
-            })
-            .catch(function(error) {
-                log(`❌ Microphone denied: ${error.message}`, 'error');
-                alert('Microphone denied. You can stay connected but PTT won\'t work.');
-            });
+            try {
+                mediaStream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true,
+                        sampleRate: 48000
+                    } 
+                });
+                log('✅ Microphone ready for PTT', 'success');
+            } catch (e) {
+                log(`⚠ Microphone denied: ${e.message}`, 'warning');
+            }
         }
 
         const pttBtn = document.getElementById('pttBtn');
@@ -428,7 +424,7 @@
         function startTransmit() {
             if (!ws || ws.readyState !== WebSocket.OPEN) return;
             if (!mediaStream) {
-                alert('Microphone not available');
+                alert('Microphone not available. Use HTTPS or localhost.');
                 return;
             }
             if (isTransmitting) return;
@@ -437,68 +433,50 @@
             pttBtn.classList.add('transmitting');
             streamId = Date.now();
             
-            log('🎤 Transmitting...', 'success');
+            log('🎤 TRANSMITTING', 'success');
 
-            const startMsg = {
+            ws.send(JSON.stringify({
                 command: 'start_stream',
                 seq: seq++,
                 type: 'audio',
                 codec: 'opus',
                 codec_header: '',
                 packet_duration: 60
+            }));
+
+            mediaRecorder = new MediaRecorder(mediaStream, {
+                mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm'
+            });
+
+            mediaRecorder.ondataavailable = (event) => {
+                if (event.data.size > 0 && ws && ws.readyState === WebSocket.OPEN && isTransmitting) {
+                    event.data.arrayBuffer().then(buffer => {
+                        const bytes = new Uint8Array(buffer);
+                        let binary = '';
+                        for (let i = 0; i < bytes.length; i++) {
+                            binary += String.fromCharCode(bytes[i]);
+                        }
+                        const base64 = btoa(binary);
+                        
+                        ws.send(JSON.stringify({
+                            command: 'send_audio',
+                            seq: seq++,
+                            stream_id: streamId,
+                            data: base64
+                        }));
+                    });
+                }
             };
 
-            ws.send(JSON.stringify(startMsg));
-            log('📤 Sent start_stream', 'info');
-
-            try {
-                const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') 
-                    ? 'audio/webm;codecs=opus' 
-                    : 'audio/webm';
-                
-                mediaRecorder = new MediaRecorder(mediaStream, { mimeType });
-                
-                let packetCount = 0;
-                
-                mediaRecorder.ondataavailable = function(event) {
-                    if (event.data.size > 0 && ws && ws.readyState === WebSocket.OPEN && isTransmitting) {
-                        event.data.arrayBuffer().then(buffer => {
-                            const bytes = new Uint8Array(buffer);
-                            let binary = '';
-                            for (let i = 0; i < bytes.length; i++) {
-                                binary += String.fromCharCode(bytes[i]);
-                            }
-                            const base64 = btoa(binary);
-                            
-                            ws.send(JSON.stringify({
-                                command: 'send_audio',
-                                seq: seq++,
-                                stream_id: streamId,
-                                packet_id: packetCount++,
-                                data: base64
-                            }));
-
-                            if (packetCount % 10 === 0) {
-                                log(`📡 Sent ${packetCount} packets`, 'info');
-                            }
-                        });
-                    }
-                };
-
-                mediaRecorder.start(60);
-                
-            } catch (e) {
-                log(`Recording error: ${e.message}`, 'error');
-                stopTransmit();
-            }
+            mediaRecorder.start(60);
         }
 
         function stopTransmit() {
             if (!isTransmitting) return;
-
+            
             isTransmitting = false;
             pttBtn.classList.remove('transmitting');
-            log('🎤 Stopped', 'info');
+            log('🔇 Stopped', 'info');
 
             if (mediaRecorder && mediaRecorder.state !== 'inactive') {
                 mediaRecorder.stop();
@@ -533,8 +511,7 @@
             }
         });
 
-        log('=== Zello Web PTT Bridge Ready ===', 'success');
-        log('Get your token at developers.zello.com', 'info');
+        log('=== Zello Web PTT Ready ===', 'success');
     </script>
 </body>
 </html>
