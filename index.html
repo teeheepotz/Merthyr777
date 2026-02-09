@@ -316,6 +316,9 @@
 
                 try {
                     const data = JSON.parse(event.data);
+                    
+                    // Log all server responses for debugging
+                    log('◀ Server: ' + JSON.stringify(data), 'info');
 
                     if (data.refresh_token) {
                         log('✓ Authenticated successfully', 'success');
@@ -342,10 +345,9 @@
                         document.getElementById('currentSpeaker').textContent = '--';
                     } else if (data.error) {
                         log(`❌ Error: ${data.error}`, 'error');
-                        alert(`Zello Error: ${data.error}`);
                     }
                 } catch (e) {
-                    // Ignore binary data parse errors
+                    // Ignore binary data
                 }
             };
 
@@ -394,7 +396,10 @@
         const pttBtn = document.getElementById('pttBtn');
 
         function startTransmit() {
-            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                log('Not connected', 'error');
+                return;
+            }
             if (!mediaStream) {
                 alert('Microphone not available');
                 return;
@@ -407,27 +412,26 @@
             
             log('🎤 TRANSMITTING', 'success');
 
-            // FIXED: Added all required parameters for start_stream
+            // Using correct Zello API command: "send_stream_start" not "start_stream"
             const startStreamMsg = {
-                command: 'start_stream',
+                command: 'send_stream_start',
                 seq: seq++,
                 type: 'audio',
                 codec: 'opus',
-                codec_header: 'gD4BPA==',  // Standard Opus header for 48kHz mono
-                packet_duration: 60,
-                channel: document.getElementById('channel').value.trim()
+                codec_header: 'gD4BPA==',
+                packet_duration: 20
             };
 
-            log('📤 Sending: ' + JSON.stringify(startStreamMsg, null, 2), 'info');
+            log('📤 ' + JSON.stringify(startStreamMsg), 'info');
             ws.send(JSON.stringify(startStreamMsg));
 
             try {
-                mediaRecorder = new MediaRecorder(mediaStream, {
-                    mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus') 
-                        ? 'audio/webm;codecs=opus' 
-                        : 'audio/webm'
-                });
-
+                // Don't reuse MediaRecorder - create fresh instance
+                const options = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+                    ? { mimeType: 'audio/webm;codecs=opus' }
+                    : { mimeType: 'audio/webm' };
+                
+                mediaRecorder = new MediaRecorder(mediaStream, options);
                 let packetId = 0;
 
                 mediaRecorder.ondataavailable = (event) => {
@@ -448,14 +452,18 @@
                                 data: base64
                             }));
 
-                            if (packetId % 10 === 0) {
-                                log(`📡 ${packetId} packets sent`, 'info');
+                            if (packetId === 1) {
+                                log(`📡 Sending audio packets...`, 'info');
                             }
                         });
                     }
                 };
 
-                mediaRecorder.start(60);
+                mediaRecorder.onerror = (e) => {
+                    log(`MediaRecorder error: ${e.error}`, 'error');
+                };
+
+                mediaRecorder.start(20); // 20ms chunks
                 log('Recording started', 'success');
                 
             } catch (e) {
@@ -472,17 +480,23 @@
             log('🔇 Stopped', 'info');
 
             if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-                mediaRecorder.stop();
+                try {
+                    mediaRecorder.stop();
+                } catch (e) {
+                    log(`Stop recording error: ${e.message}`, 'warning');
+                }
             }
 
             if (ws && ws.readyState === WebSocket.OPEN && streamId) {
                 ws.send(JSON.stringify({
-                    command: 'stop_stream',
+                    command: 'send_stream_stop',
                     seq: seq++,
                     stream_id: streamId
                 }));
-                log('📤 Sent stop_stream', 'info');
+                log('📤 Sent send_stream_stop', 'info');
             }
+            
+            mediaRecorder = null;
         }
 
         pttBtn.addEventListener('mousedown', startTransmit);
