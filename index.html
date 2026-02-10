@@ -22,6 +22,15 @@
         }
         h1 { color: #333; margin-bottom: 10px; }
         .subtitle { color: #666; margin-bottom: 30px; font-size: 14px; }
+        .warning-box {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+        }
+        .warning-box h4 { color: #856404; margin-bottom: 5px; }
+        .warning-box p { color: #856404; font-size: 13px; line-height: 1.5; }
         .form-group { margin-bottom: 20px; }
         label { display: block; margin-bottom: 8px; color: #555; font-weight: 500; }
         input {
@@ -131,6 +140,11 @@
         <h1>🎙️ Zello Web PTT Bridge</h1>
         <p class="subtitle">Full-duplex web interface for Zello channels</p>
 
+        <div class="warning-box">
+            <h4>⚠️ Known Limitation</h4>
+            <p>Web browsers cannot easily encode raw Opus for Zello's API. This bridge works for receiving audio, but transmitted audio may not be decoded properly by Zello clients. For full PTT functionality, consider using the native Zello app or a desktop application with proper Opus encoding.</p>
+        </div>
+
         <div class="status disconnected" id="status">⚫ Disconnected</div>
 
         <div class="form-group">
@@ -157,8 +171,8 @@
 
         <div class="ptt" id="pttContainer">
             <div class="success-banner">
-                <h4>✅ Connected & Ready!</h4>
-                <p>Your web PTT bridge is working. Press and hold to transmit.</p>
+                <h4>✅ Connected & Receiving</h4>
+                <p>You can hear incoming audio. Outgoing audio may require native Opus encoding.</p>
             </div>
 
             <div class="channel-stats">
@@ -175,7 +189,7 @@
             <button class="ptt-button" id="pttBtn">PUSH<br>TO<br>TALK</button>
             
             <p style="color: #666; font-size: 14px; margin-top: 10px;">
-                🎤 Hold button or Spacebar to transmit<br>
+                🎤 Hold button or Spacebar (testing mode)<br>
                 🔊 Incoming audio plays automatically
             </p>
         </div>
@@ -185,10 +199,11 @@
 
     <audio id="audioPlayer" style="display: none;"></audio>
 
+    <script src="https://cdn.jsdelivr.net/npm/opus-recorder@latest/dist/recorder.min.js"></script>
     <script>
         let ws = null;
         let mediaStream = null;
-        let mediaRecorder = null;
+        let recorder = null;
         let isTransmitting = false;
         let seq = 1;
         let streamId = null;
@@ -292,7 +307,7 @@
                         log(`✓ Stream ID: ${streamId}`, 'success');
                     }
                 } catch (e) {
-                    // Ignore parse errors
+                    // Ignore
                 }
             };
 
@@ -335,6 +350,7 @@
                     } 
                 });
                 log('✅ Microphone ready', 'success');
+                log('⚠ Note: Browser Opus encoding may not be compatible', 'warning');
             } catch (e) {
                 log(`⚠ Mic denied: ${e.message}`, 'warning');
             }
@@ -355,7 +371,7 @@
             awaitingStreamId = true;
             streamId = null;
             
-            log('🎤 TX', 'success');
+            log('🎤 TX (testing - may not decode on Zello)', 'warning');
 
             ws.send(JSON.stringify({
                 command: 'start_stream',
@@ -363,41 +379,75 @@
                 type: 'audio',
                 codec: 'opus',
                 codec_header: 'gD4BPA==',
-                packet_duration: 20
+                packet_duration: 60
             }));
 
+            // Use opus-recorder library for better Opus encoding
             setTimeout(() => {
                 if (!streamId) {
                     streamId = Math.floor(Math.random() * 1000000);
                 }
 
                 try {
-                    mediaRecorder = new MediaRecorder(mediaStream, {
-                        mimeType: 'audio/webm;codecs=opus'
-                    });
+                    // Try using opus-recorder if available
+                    if (typeof Recorder !== 'undefined') {
+                        recorder = new Recorder({
+                            encoderPath: 'https://cdn.jsdelivr.net/npm/opus-recorder@latest/dist/encoderWorker.min.js',
+                            encoderSampleRate: 48000,
+                            encoderApplication: 2048, // VOIP
+                            streamPages: true,
+                            numberOfChannels: 1,
+                            sourceNode: mediaStream
+                        });
 
-                    let packetId = 0;
+                        let packetId = 0;
 
-                    mediaRecorder.ondataavailable = (event) => {
-                        if (event.data.size > 0 && ws && ws.readyState === WebSocket.OPEN && isTransmitting) {
-                            event.data.arrayBuffer().then(buffer => {
+                        recorder.ondataavailable = (typedArray) => {
+                            if (ws && ws.readyState === WebSocket.OPEN && isTransmitting) {
                                 const header = createBinaryHeader(streamId, packetId++);
-                                const audioData = new Uint8Array(buffer);
-                                const packet = new Uint8Array(header.length + audioData.length);
+                                const packet = new Uint8Array(header.length + typedArray.length);
                                 packet.set(header, 0);
-                                packet.set(audioData, header.length);
+                                packet.set(typedArray, header.length);
                                 ws.send(packet.buffer);
-                            });
-                        }
-                    };
+                            }
+                        };
 
-                    mediaRecorder.start(20);
+                        recorder.start();
+                        log('Using opus-recorder library', 'info');
+                    } else {
+                        // Fallback to MediaRecorder (won't work properly)
+                        log('⚠ opus-recorder not loaded, using fallback', 'warning');
+                        useFallbackRecorder();
+                    }
                     
                 } catch (e) {
                     log(`Error: ${e.message}`, 'error');
                     stopTransmit();
                 }
-            }, 100);
+            }, 150);
+        }
+
+        function useFallbackRecorder() {
+            const mediaRecorder = new MediaRecorder(mediaStream, {
+                mimeType: 'audio/webm;codecs=opus'
+            });
+
+            let packetId = 0;
+
+            mediaRecorder.ondataavailable = (event) => {
+                if (event.data.size > 0 && ws && ws.readyState === WebSocket.OPEN && isTransmitting) {
+                    event.data.arrayBuffer().then(buffer => {
+                        const header = createBinaryHeader(streamId, packetId++);
+                        const audioData = new Uint8Array(buffer);
+                        const packet = new Uint8Array(header.length + audioData.length);
+                        packet.set(header, 0);
+                        packet.set(audioData, header.length);
+                        ws.send(packet.buffer);
+                    });
+                }
+            };
+
+            mediaRecorder.start(60);
         }
 
         function stopTransmit() {
@@ -406,9 +456,10 @@
             isTransmitting = false;
             pttBtn.classList.remove('transmitting');
 
-            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+            if (recorder) {
                 try {
-                    mediaRecorder.stop();
+                    recorder.stop();
+                    recorder = null;
                 } catch (e) {}
             }
 
@@ -420,7 +471,6 @@
                 }));
             }
             
-            mediaRecorder = null;
             streamId = null;
             awaitingStreamId = false;
         }
@@ -446,6 +496,7 @@
         });
 
         log('=== Zello Web PTT Bridge Ready ===', 'success');
+        log('⚠ TX audio encoding is experimental', 'warning');
     </script>
 </body>
 </html>
