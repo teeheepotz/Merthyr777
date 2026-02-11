@@ -1,0 +1,26 @@
+{
+  "name": "mtbc-zello-gateway",
+  "version": "1.1.0",
+  "description": "Real-time PTT Gateway for MTBC WebUser",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "zello",
+    "ptt",
+    "radio-gateway",
+    "opus"
+  ],
+  "author": "MTBC",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.8.0",
+    "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
