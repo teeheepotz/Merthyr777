@@ -1,50 +1,381 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>MTBC PTT Gateway</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zello Web PTT - Server Edition</title>
     <style>
-        body { background: #111; color: white; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; font-family: sans-serif; }
-        .box { border: 2px solid #333; padding: 40px; border-radius: 20px; background: #1a1a1a; text-align: center; }
-        #ptt { width: 140px; height: 140px; border-radius: 50%; background: #ff4444; border: 8px solid #222; cursor: pointer; transition: 0.1s; outline: none; }
-        #ptt:active:not(:disabled) { background: #2ecc71; transform: scale(0.96); }
-        #ptt:disabled { background: #444; cursor: not-allowed; }
-        .st { margin-top: 20px; font-weight: bold; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 40px;
+        }
+        h1 { color: #333; margin-bottom: 10px; }
+        .subtitle { color: #666; margin-bottom: 30px; font-size: 14px; }
+        .success-box {
+            background: #d4edda;
+            border-left: 4px solid #28a745;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+        }
+        .success-box h4 { color: #155724; margin-bottom: 5px; }
+        .success-box p { color: #155724; font-size: 13px; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; color: #555; font-weight: 500; }
+        input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 15px;
+        }
+        input:focus { outline: none; border-color: #667eea; }
+        button {
+            width: 100%;
+            padding: 15px;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            margin-bottom: 15px;
+            transition: all 0.2s;
+        }
+        button:hover { transform: translateY(-2px); box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3); }
+        button:disabled { background: #ccc; cursor: not-allowed; transform: none; }
+        .status {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            text-align: center;
+            font-weight: bold;
+        }
+        .status.disconnected { background: #fee; color: #c33; }
+        .status.connected { background: #d4edda; color: #155724; }
+        .ptt { display: none; text-align: center; margin-top: 30px; }
+        .ptt.active { display: block; }
+        .ptt-button {
+            width: 180px;
+            height: 180px;
+            border-radius: 50%;
+            border: none;
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+            font-size: 20px;
+            font-weight: bold;
+            cursor: pointer;
+            margin: 20px auto;
+            display: block;
+            box-shadow: 0 10px 30px rgba(245, 87, 108, 0.4);
+            transition: all 0.2s ease;
+        }
+        .ptt-button:hover { transform: scale(1.05); }
+        .ptt-button.transmitting {
+            background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+            transform: scale(0.95);
+            animation: pulse 0.5s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { box-shadow: 0 10px 30px rgba(254, 225, 64, 0.6); }
+            50% { box-shadow: 0 10px 40px rgba(254, 225, 64, 0.9); }
+        }
+        .channel-stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .stat-box {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .stat-label { font-size: 12px; color: #666; margin-bottom: 5px; }
+        .stat-value { font-size: 24px; font-weight: bold; color: #667eea; }
+        .log {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+            margin-top: 20px;
+            border: 1px solid #333;
+        }
+        .log-entry { margin-bottom: 5px; line-height: 1.5; color: #569cd6; }
     </style>
 </head>
 <body>
-    <div class="box">
-        <button id="ptt"></button>
-        <div class="st" id="st">INITIALIZING...</div>
+    <div class="container">
+        <h1>🎙️ Zello Web PTT</h1>
+        <p class="subtitle">Server-powered full-duplex PTT (with proper Opus encoding)</p>
+
+        <div class="success-box">
+            <h4>✅ Server Edition</h4>
+            <p>This version uses a Node.js server for proper Opus encoding. Full TX/RX functionality!</p>
+        </div>
+
+        <div class="status disconnected" id="status">⚫ Disconnected from Zello</div>
+
+        <div class="form-group">
+            <label>Authentication Token</label>
+            <input type="text" id="authToken" placeholder="Your Zello developer token">
+        </div>
+
+        <div class="form-group">
+            <label>Channel Name</label>
+            <input type="text" id="channel" placeholder="e.g., Merthyr Tydfil CB Radio">
+        </div>
+
+        <div class="form-group">
+            <label>Username (Optional)</label>
+            <input type="text" id="username" placeholder="Your Zello username">
+        </div>
+
+        <div class="form-group">
+            <label>Password (Optional)</label>
+            <input type="password" id="password" placeholder="Your password">
+        </div>
+
+        <button id="connectBtn">🔌 Connect to Zello</button>
+
+        <div class="ptt" id="pttContainer">
+            <div class="channel-stats">
+                <div class="stat-box">
+                    <div class="stat-label">Users Online</div>
+                    <div class="stat-value" id="usersOnline">--</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-label">Current Speaker</div>
+                    <div class="stat-value" id="currentSpeaker" style="font-size: 14px;">--</div>
+                </div>
+            </div>
+            
+            <button class="ptt-button" id="pttBtn">PUSH<br>TO<br>TALK</button>
+            
+            <p style="color: #666; font-size: 14px; margin-top: 10px;">
+                🎤 Hold button or Spacebar to transmit<br>
+                🔊 Incoming audio plays automatically
+            </p>
+        </div>
+
+        <div class="log" id="log"></div>
     </div>
+
+    <audio id="audioPlayer" style="display: none;"></audio>
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
         const socket = io();
-        const btn = document.getElementById('ptt'), st = document.getElementById('st');
-        let rec, audioStream;
+        let audioContext = null;
+        let mediaStream = null;
+        let isTransmitting = false;
+        let audioProcessor = null;
+        let audioSource = null;
 
-        navigator.mediaDevices.getUserMedia({ audio: true }).then(s => { 
-            audioStream = s; 
-            st.innerText = "READY";
+        function log(message) {
+            console.log(message);
+            const logDiv = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            const time = new Date().toLocaleTimeString();
+            entry.textContent = `[${time}] ${message}`;
+            logDiv.appendChild(entry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+            
+            while (logDiv.children.length > 100) {
+                logDiv.removeChild(logDiv.firstChild);
+            }
+        }
+
+        // Socket.IO events
+        socket.on('connect', () => {
+            log('✅ Connected to server');
         });
 
-        btn.onmousedown = () => {
-            if(btn.disabled || !audioStream) return;
-            
-            // Start recorder immediately
-            rec = new MediaRecorder(audioStream, { mimeType: 'audio/webm;codecs=opus' });
-            rec.ondataavailable = e => { if (e.data.size > 0) socket.emit('audio_data', e.data); };
-            
-            socket.emit('ptt_start');
-            rec.start(20);
-            st.innerText = "TALKING...";
-        };
+        socket.on('zello_status', (status) => {
+            console.log('Received zello_status:', status);
+            if (status.connected) {
+                document.getElementById('status').className = 'status connected';
+                document.getElementById('status').textContent = `🟢 ${status.channel}`;
+                document.getElementById('usersOnline').textContent = status.users;
+                document.getElementById('pttContainer').classList.add('active');
+                log(`✅ Connected! PTT button visible`);
+            } else {
+                document.getElementById('status').className = 'status disconnected';
+                document.getElementById('status').textContent = '⚫ Disconnected from Zello';
+                document.getElementById('pttContainer').classList.remove('active');
+            }
+        });
 
-        btn.onmouseup = () => {
-            socket.emit('ptt_stop');
-            if(rec && rec.state !== "inactive") rec.stop();
-            st.innerText = "READY";
-        };
+        socket.on('speaker_update', (speaker) => {
+            document.getElementById('currentSpeaker').textContent = speaker || '--';
+        });
+
+        socket.on('incoming_audio', (audioData) => {
+            playAudio(new Uint8Array(audioData));
+        });
+
+        socket.on('log', (message) => {
+            log(message);
+        });
+
+        socket.on('error', (error) => {
+            log(`❌ ${error}`);
+            alert(`Error: ${error}`);
+        });
+
+        // Connect button
+        document.getElementById('connectBtn').addEventListener('click', async () => {
+            const token = document.getElementById('authToken').value.trim();
+            const channel = document.getElementById('channel').value.trim();
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value.trim();
+
+            if (!token || !channel) {
+                alert('Please enter Token and Channel');
+                return;
+            }
+
+            document.getElementById('connectBtn').disabled = true;
+            log('Requesting microphone...');
+
+            try {
+                // Request microphone first
+                await setupAudio();
+
+                log('Connecting to Zello via server...');
+
+                socket.emit('zello_connect', {
+                    token: token,
+                    channel: channel,
+                    username: username,
+                    password: password
+                });
+            } catch (e) {
+                document.getElementById('connectBtn').disabled = false;
+                log(`❌ Setup failed: ${e.message}`);
+            }
+        });
+
+        async function setupAudio() {
+            try {
+                mediaStream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true,
+                        sampleRate: 48000,
+                        channelCount: 1
+                    }
+                });
+
+                audioContext = new (window.AudioContext || window.webkitAudioContext)({
+                    sampleRate: 48000
+                });
+
+                log('✅ Microphone ready');
+            } catch (e) {
+                log(`❌ Microphone error: ${e.message}`);
+                alert('Microphone access denied. Please allow microphone and refresh.');
+                throw e;
+            }
+        }
+
+        // PTT control
+        const pttBtn = document.getElementById('pttBtn');
+
+        async function startPTT() {
+            if (!mediaStream || isTransmitting) return;
+
+            isTransmitting = true;
+            pttBtn.classList.add('transmitting');
+            log('🎤 PTT pressed');
+
+            socket.emit('start_ptt');
+
+            // Create audio processing
+            const source = audioContext.createMediaStreamSource(mediaStream);
+            const processor = audioContext.createScriptProcessor(4096, 1, 1);
+
+            processor.onaudioprocess = (e) => {
+                if (isTransmitting) {
+                    const inputData = e.inputBuffer.getChannelData(0);
+                    socket.emit('audio_data', Array.from(inputData));
+                }
+            };
+
+            source.connect(processor);
+            processor.connect(audioContext.destination);
+
+            audioProcessor = processor;
+            audioSource = source;
+        }
+
+        function stopPTT() {
+            if (!isTransmitting) return;
+
+            isTransmitting = false;
+            pttBtn.classList.remove('transmitting');
+            log('🔇 PTT released');
+
+            if (audioProcessor) {
+                audioSource.disconnect();
+                audioProcessor.disconnect();
+                audioProcessor = null;
+                audioSource = null;
+            }
+
+            socket.emit('stop_ptt');
+        }
+
+        pttBtn.addEventListener('mousedown', startPTT);
+        pttBtn.addEventListener('mouseup', stopPTT);
+        pttBtn.addEventListener('mouseleave', stopPTT);
+        pttBtn.addEventListener('touchstart', e => { e.preventDefault(); startPTT(); });
+        pttBtn.addEventListener('touchend', e => { e.preventDefault(); stopPTT(); });
+
+        document.addEventListener('keydown', e => {
+            if (e.code === 'Space' && !e.target.matches('input') && !isTransmitting) {
+                e.preventDefault();
+                startPTT();
+            }
+        });
+
+        document.addEventListener('keyup', e => {
+            if (e.code === 'Space' && !e.target.matches('input')) {
+                e.preventDefault();
+                stopPTT();
+            }
+        });
+
+        function playAudio(arrayBuffer) {
+            const audioData = arrayBuffer.slice(9);
+            const blob = new Blob([audioData], { type: 'audio/opus' });
+            const audioPlayer = document.getElementById('audioPlayer');
+            const url = URL.createObjectURL(blob);
+            audioPlayer.src = url;
+            audioPlayer.play().catch(e => console.log('Play error:', e));
+        }
+
+        log('=== Zello Web PTT Ready ===');
+        log('Enter credentials and click Connect');
     </script>
 </body>
 </html>
